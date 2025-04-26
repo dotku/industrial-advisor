@@ -39,6 +39,7 @@ export default function Home() {
   const [advice, setAdvice] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [stream, setStream] = useState(true);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -47,10 +48,37 @@ export default function Home() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError(''); 
+    setError('');
+    setAdvice('');
     try {
-      const response = await axios.post('/api/advice', { companyInfo: formData, language: formData.language  });
-      setAdvice(response.data.advice);
+      const url = `/api/advice?stream=${stream}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyInfo: formData, language: formData.language })
+      });
+      if (!response.ok) {
+        throw new Error('Failed to get advice. Please try again later.');
+      }
+      if (stream) {
+        // Stream mode
+        if (!response.body) throw new Error('No response body');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let done = false;
+        while (!done) {
+          const { value, done: doneReading } = await reader.read();
+          done = doneReading;
+          if (value) {
+            const chunk = decoder.decode(value);
+            setAdvice(prev => prev + chunk);
+          }
+        }
+      } else {
+        // Non-stream mode
+        const data = await response.json();
+        setAdvice(data.advice);
+      }
     } catch (error) {
       console.error('Error fetching advice:', error);
       setError('Failed to get advice. Please try again later.');
@@ -59,11 +87,23 @@ export default function Home() {
     }
   };
 
+
+
   return (
     <main className="container mx-auto px-4 py-8 max-w-2xl">
       <h1 className="text-3xl font-bold mb-8">Industrial Advisor</h1>
-      <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="mb-6">
+       <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="flex items-center mb-4">
+          <label className="mr-2 font-medium">Stream output</label>
+          <input
+            type="checkbox"
+            checked={stream}
+            onChange={e => setStream(e.target.checked)}
+            className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+            disabled={loading}
+          />
+        </div>
+        <div className="mb-6">
           <label className="block mb-3 font-medium">Output Language</label>
           <div className="grid grid-cols-3 gap-4">
             {LANGUAGES.map(({ code, name }) => (
@@ -174,9 +214,15 @@ export default function Home() {
 
         <button 
           type="submit" 
-          className="w-full bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors"
+          className="w-full bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center justify-center"
           disabled={loading}
         >
+          {loading && (
+            <svg className="animate-spin mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+          )}
           {loading ? 'Getting Advice...' : 'Get Advice'}
         </button>
       </form>

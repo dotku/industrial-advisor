@@ -30,6 +30,8 @@ export interface CompanyInfo {
 }
 
 export async function POST(request) {
+    const { searchParams } = new URL(request.url);
+    const streamMode = searchParams.get('stream') === 'true';
     console.log("call /api/advice");
     const { companyInfo, language } = await request.json();
 
@@ -42,6 +44,7 @@ export async function POST(request) {
     };
     
     try {
+      console.log("call /api/advice AI_API_URL: ", process.env.AI_API_URL);
       const response = await fetch(`${process.env.AI_API_URL}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -110,7 +113,7 @@ export async function POST(request) {
             }
           ],
           max_tokens: 12800,
-          stream: false
+          stream: streamMode
         }),
       });
   
@@ -120,8 +123,50 @@ export async function POST(request) {
         throw new Error(`API responded with status: ${response.status}`);
       }
 
-      const data = await response.json();
-      return Response.json({ advice: data.choices[0].message.content });
+      if (streamMode) {
+        // Stream the response to the frontend
+        const encoder = new TextEncoder();
+        const reader = response.body.getReader();
+        const stream = new ReadableStream({
+          async start(controller) {
+            let buffer = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              // Decode and forward data
+              const chunk = new TextDecoder().decode(value);
+              buffer += chunk;
+              // Attempt to extract content from OpenAI-style stream
+              const lines = buffer.split('\n');
+              buffer = lines.pop()!;
+              for (const line of lines) {
+                if (line.startsWith('data:')) {
+                  const dataStr = line.replace('data: ', '').trim();
+                  if (dataStr === '[DONE]') continue;
+                  try {
+                    const json = JSON.parse(dataStr);
+                    const content = json.choices?.[0]?.delta?.content;
+                    if (content) {
+                      controller.enqueue(encoder.encode(content));
+                    }
+                  } catch (e) { /* skip malformed lines */ }
+                }
+              }
+            }
+            controller.close();
+          }
+        });
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'no-cache'
+          }
+        });
+      } else {
+        // Non-streaming: return the full advice as before
+        const data = await response.json();
+        return Response.json({ advice: data.choices[0].message.content });
+      }
     } catch (error) {
       console.error('API Error:', error);
       return Response.json({ error: 'Failed to get advice' }, { status: 500 });
