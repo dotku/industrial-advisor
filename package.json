@@ -1,0 +1,11 @@
+{
+  "name": "industrial-advisor-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently \"npm run start --prefix frontend\" \"npm run start --prefix backend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
